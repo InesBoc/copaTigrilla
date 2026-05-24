@@ -107,23 +107,35 @@ export default function Index() {
         <Text style={styles.infoText}>• <Text style={{ fontWeight: '600' }}>14:00 hs</Text> - Concurso de Coreos 💃 y Sorteos</Text>
         <Text style={styles.infoText}>• <Text style={{ fontWeight: '600' }}>16:00 hs</Text> - Cierre</Text>
       </View>
-      
-      {/* BOTONES PRINCIPALES DE USUARIO */}
+    
+{/* 🏆 BOTONES PRINCIPALES DE USUARIO (SIEMPRE VISIBLES) */}
       <View style={styles.buttonContainer}>
-        <TouchableOpacity style={[styles.button, { backgroundColor: '#1a1a1a', marginBottom: 15 }]} onPress={() => router.push('/categorias')}>
+        <TouchableOpacity 
+          style={[styles.button, { backgroundColor: '#1a1a1a', marginBottom: 15 }]} 
+          onPress={() => router.push({
+            pathname: '/categorias',
+            params: { adminMode: esAdmin ? 'true' : 'false' }
+          })}
+        >
           <Text style={styles.buttonText}>🏆 VER CATEGORÍAS / FIXTURE</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={[styles.button, { backgroundColor: '#d32f2f' }]} onPress={() => router.push('/votacion')}>
+        <TouchableOpacity 
+          style={[styles.button, { backgroundColor: '#d32f2f', marginBottom: 15 }]} 
+          onPress={() => router.push('/votacion')}
+        >
           <Text style={styles.buttonText}>💃 VOTAR MEJOR COREO</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={[styles.button, { backgroundColor: '#7b1fa2', marginTop: 15 }]} onPress={() => router.push('/resultados')}>
+        <TouchableOpacity 
+          style={[styles.button, { backgroundColor: '#7b1fa2' }]} 
+          onPress={() => router.push('/resultados')}
+        >
           <Text style={styles.buttonText}>📊 VER RESULTADOS COREOS</Text>
         </TouchableOpacity>
       </View>
 
-      {/* SECCIÓN ACCESO EXCLUSIVO ADMINISTRADOR */}
+      {/* ⚙️ SECCIÓN ACCESO EXCLUSIVO ADMINISTRADOR */}
       <View style={styles.adminSectionWrapper}>
         {!esAdmin ? (
           !mostrarLoginAdmin ? (

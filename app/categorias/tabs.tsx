@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { collection, doc, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, setDoc, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { db } from '../../firebaseConfig'; // Asegúrate de que la ruta a tu config sea correcta
@@ -16,7 +16,8 @@ interface Partido {
 }
 
 export default function CategoriaTabs() {
-  const { categoria } = useLocalSearchParams(); 
+  const { categoria, adminMode } = useLocalSearchParams();
+  const esAdministradorReal = adminMode === 'true';   
   const router = useRouter();
   const [tabActiva, setTabActiva] = useState('fixture');
   const [partidos, setPartidos] = useState<Partido[]>([]);
@@ -55,27 +56,58 @@ export default function CategoriaTabs() {
     return () => unsubscribe();
   }, [categoriaFiltrar]);
 
-  // --- FUNCIÓN ADMINISTRADOR: MARCAR COMO JUGADO ---
+  // --- FUNCIÓN ADMINISTRADOR: MARCAR COMO JUGADO (CORREGIDA WEB/MOBILE) ---
   const cambiarEstadoJugado = (id: string, estadoActual: boolean) => {
+    // Si NO es administrador, cancelamos la acción silenciosamente
+    if (!esAdministradorReal) return;
+
+    const titulo = "Control de Partido (Admin)";
+    const mensaje = estadoActual ? "¿Querés cambiar el partido a PENDIENTE?" : "¿Dar por JUGADO este partido?";
+
+    // 1. CONTROL EXCLUSIVO PARA NAVEGADOR WEB (PC / Netlify / Expo Web)
+    if (typeof window !== 'undefined' && typeof (window as any).confirm === 'function') {
+      const confirmar = window.confirm(`${titulo}\n\n${mensaje}`);
+      if (confirmar) {
+        ejecutarActualizacion(id, estadoActual);
+      }
+      return; // Corta acá para que no intente usar el Alert de celular
+    }
+
+    // 2. CONTROL NATIVO PARA CELULARES (Expo Go Android/iOS)
     Alert.alert(
-      "Control de Partido (Admin)",
-      estadoActual ? "¿Querés cambiar el partido a PENDIENTE?" : "¿Dar por JUGADO este partido?",
+      titulo,
+      mensaje,
       [
         { text: "Cancelar", style: "cancel" },
-        { 
-          text: "Sí, cambiar", 
-          onPress: async () => {
-            try {
-              const partidoRef = doc(db, "partidos", id);
-              await updateDoc(partidoRef, { jugado: !estadoActual });
-            } catch (error) {
-              console.error("Error al actualizar partido: ", error);
-              Alert.alert("Error", "No se pudo actualizar el estado.");
-            }
-          } 
-        }
+        { text: "Sí, cambiar", onPress: () => ejecutarActualizacion(id, estadoActual) }
       ]
     );
+  };
+
+  // Función de diagnóstico pesado para obligar a mostrar el error en pantalla
+  const ejecutarActualizacion = async (id: string, estadoActual: boolean) => {
+    try {
+      // 1. Alerta de control: Ver si el ID existe y es real
+      alert("Paso 1: Intentando actualizar Partido ID:\n" + id);
+
+      const partidoRef = doc(db, "partidos", id);
+      const nuevoEstado = !estadoActual;
+
+      // 2. Intentar impactar Firebase
+      await setDoc(partidoRef, { jugado: nuevoEstado }, { merge: true });
+      
+      alert("Paso 2: ¡Firebase aceptó la escritura con éxito! 🎉");
+
+      // 3. Forzar actualización local
+      setPartidos(prevPartidos => 
+        prevPartidos.map(p => p.id === id ? { ...p, jugado: nuevoEstado } : p)
+      );
+
+    } catch (error: any) {
+      console.error(error);
+      // 3. Si Firebase falla, nos va a decir EXACTAMENTE por qué acá:
+      alert("❌ ERROR CRÍTICO DE FIREBASE:\n" + error.message + "\n\nCódigo: " + error.code);
+    }
   };
 
   // --- COMPONENTES DE PESTAÑAS ---
@@ -113,7 +145,10 @@ export default function CategoriaTabs() {
   const VistaFixture = () => (
     <ScrollView contentContainerStyle={styles.tabContenido}>
       <Text style={styles.seccionTitle}>🗓️ Rol de Partidos</Text>
-      <Text style={styles.adminTip}>💡 Admin: Toca una tarjeta para marcar/desmarcar como jugado.</Text>
+      
+      {esAdministradorReal && (
+        <Text style={styles.adminTip}>💡 Admin: Toca una tarjeta para marcar/desmarcar como jugado.</Text>
+      )}
       
       {cargando ? (
         <ActivityIndicator size="large" color="#d32f2f" style={{ marginTop: 20 }} />
@@ -126,20 +161,35 @@ export default function CategoriaTabs() {
           return (
             <TouchableOpacity 
               key={partido.id} 
-              // Al tocar abre el menú de administrador
               onPress={() => cambiarEstadoJugado(partido.id, esJugado)}
-              activeOpacity={0.7}
+              activeOpacity={esAdministradorReal ? 0.7 : 1}
               style={[
                 styles.cardPartido, 
-                esJugado && styles.cardPartidoJugado // Aplica color verde si está jugado
+                esJugado && styles.cardPartidoJugado 
               ]}
             >
+              {/* HEADER DE LA TARJETA */}
               <View style={[styles.partidoHeader, esJugado && { borderBottomColor: '#c8e6c9' }]}>
-                <Text style={[styles.partidoHora, esJugado && { color: '#2e7d32' }]}>
-                  ⏰ {partido.hora} hs {esJugado ? '✅ JUGADO' : ''}
-                </Text>
-                <Text style={[styles.partidoCancha, esJugado && { color: '#388e3c' }]}>{partido.cancha}</Text>
+                <View style={styles.headerFilaSuperior}>
+                  <Text style={[styles.partidoHora, esJugado && { color: '#2e7d32' }]}>
+                    ⏰ {partido.hora} hs {esJugado ? '✅ JUGADO' : ''}
+                  </Text>
+                  <Text style={[styles.partidoCancha, esJugado && { color: '#388e3c' }]}>
+                    📍 {partido.cancha}
+                  </Text>
+                </View>
+
+                {/* 👁️ ACCIÓN DE ADMIN EN UNA LÍNEA EXCLUSIVA INFERIOR PARA QUE NO SE SOLAPE */}
+                {esAdministradorReal && (
+                  <View style={styles.adminAccionContenedor}>
+                    <Text style={[styles.adminAccionTexto, esJugado ? styles.textoPendiente : styles.textoJugado]}>
+                      {esJugado ? '🔄 Tocar para cambiar a Pendiente' : '⚡ Tocar para marcar como Jugado'}
+                    </Text>
+                  </View>
+                )}
               </View>
+
+              {/* CRUCES DE EQUIPOS */}
               <View style={styles.partidoCruces}>
                 <Text style={[styles.partidoEquipo, esJugado && { color: '#1b5e20' }]}>{partido.local}</Text>
                 <Text style={[styles.vs, esJugado && { color: '#757575' }]}>vs</Text>
@@ -224,7 +274,12 @@ const styles = StyleSheet.create({
   // Estilo Verde Especial para el partido jugado
   cardPartidoJugado: { backgroundColor: '#e8f5e9', borderLeftColor: '#4caf50', elevation: 1 },
   
-  partidoHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10, borderBottomWidth: 1, borderBottomColor: '#eee', paddingBottom: 5 },
+  partidoHeader: { flexDirection: 'column', marginBottom: 12, borderBottomWidth: 1, borderBottomColor: '#eee', paddingBottom: 8 },
+  headerFilaSuperior: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%'},
+  adminAccionContenedor: { marginTop: 6, backgroundColor: '#f0f0f0', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 4, alignSelf: 'flex-start'},
+  adminAccionTexto: { fontSize: 11, fontWeight: 'bold'},
+  textoJugado: {color: '#7b1fa2'},
+  textoPendiente: { color: '#c62828'},
   partidoHora: { fontWeight: 'bold', color: '#d32f2f', fontSize: 14 },
   partidoCancha: { color: '#666', fontWeight: '500', fontSize: 14 },
   partidoCruces: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingVertical: 5 },

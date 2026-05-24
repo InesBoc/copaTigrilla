@@ -1,16 +1,21 @@
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 export default function SeleccionarCategoria() {
   const router = useRouter();
+  const { adminMode } = useLocalSearchParams(); // Captura si viene de la Home como admin
 
   const entrarACategoria = (catNombre: string) => {
-    // Viaja a las pestañas pasando la categoría como parámetro de manera segura
+    // Viaja a las pestañas pasando la categoría Y el modo administrador
     router.push({ 
       pathname: '/categorias/tabs', 
-      params: { categoria: catNombre } 
+      params: { 
+        categoria: catNombre,
+        adminMode: adminMode // Se lo reenvía a las pestañas
+      } 
     });
   };
+
 
   return (
     <View style={styles.container}>
