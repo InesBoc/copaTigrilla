@@ -286,9 +286,9 @@ const styles = StyleSheet.create({
   partidoEquipo: { flex: 1, fontSize: 15, fontWeight: 'bold', color: '#1a1a1a', textAlign: 'center' },
   vs: { paddingHorizontal: 10, color: '#888', fontStyle: 'italic', fontWeight: 'bold' },
 
-  tabBar: { flexDirection: 'row', height: 60, borderTopWidth: 1, borderTopColor: '#eee', backgroundColor: '#fff' },
-  tabButton: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  tabBar: { flexDirection: 'row', height: 75, borderTopWidth: 1, borderTopColor: '#eee', backgroundColor: '#fff',paddingBottom: 15, position: 'relative', },
+  tabButton: { flex: 1, justifyContent: 'center', alignItems: 'center' ,  paddingVertical: 5},
   tabActiva: { borderTopWidth: 3, borderTopColor: '#1a1a1a', backgroundColor: '#f9f9f9' },
-  tabText: { fontSize: 14, fontWeight: '600', color: '#888' },
+  tabText: { fontSize: 14, fontWeight: '600', color: '#888', textAlign: 'center' },
   tabTextActivo: { color: '#1a1a1a', fontWeight: 'bold' }
 });
