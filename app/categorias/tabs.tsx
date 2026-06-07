@@ -1,7 +1,7 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { collection, doc, onSnapshot, query, setDoc, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { db } from '../../firebaseConfig';
 
 interface Partido {
@@ -88,20 +88,27 @@ export default function CategoriaTabs() {
 
   // --- COMPONENTES DE INTERFAZ ---
 
-  const VistaPlano = () => (
-    <View style={styles.tabContenido}>
-      <Text style={styles.seccionTitle}>🗺️ Ubicación de Canchas</Text>
-      <Text style={styles.bajada}>Distribución asignada para la categoría {categoriaFiltrar}</Text>
-      <View style={styles.placeholderPlano}>
-        <Text style={styles.placeholderTexto}>
-          {categoriaFiltrar === '8va' && "🏑 Canchas: 1, 2, 3 y 4"}
-          {categoriaFiltrar === '9na' && "🏑 Canchas: 5, 6, 7 y 8"}
-          {categoriaFiltrar === '10ma' && "🏑 Canchas: 9, 10, 11 y 12"}
-        </Text>
-      </View>
+const VistaPlano = () => (
+  <View style={styles.tabContenido}>
+    <Text style={styles.seccionTitle}>🗺️ Ubicación de Canchas</Text>
+    <Text style={styles.bajada}>Distribución asignada para la categoría {categoriaFiltrar}</Text>
+    
+    <View style={styles.contenedorPlano}>
+      <Image 
+        source={require('../../assets/images/plano.jpeg') as any} 
+        resizeMode="contain"
+      />
     </View>
-  );
 
+    <View style={styles.placeholderPlano}>
+      <Text style={styles.placeholderTexto}>
+        {categoriaFiltrar === '8va' && "🏑 Canchas asignadas: 1, 2, 3 y 4"}
+        {categoriaFiltrar === '9na' && "🏑 Canchas asignadas: 5, 6, 7 y 8"}
+        {categoriaFiltrar === '10ma' && "🏑 Canchas asignadas: 9, 10, 11 y 12"}
+      </Text>
+    </View>
+  </View>
+);
   const VistaEquipos = () => {
     const equiposUnicos = Array.from(new Set(partidos.flatMap(p => [p.local, p.visitante]))).filter(Boolean).sort();
     return (
@@ -285,5 +292,21 @@ const styles = StyleSheet.create({
   tabButton: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   tabActiva: { borderTopWidth: 3, borderTopColor: '#d32f2f' },
   tabText: { fontSize: 13, fontWeight: '600', color: '#94a3b8' },
-  tabTextActivo: { color: '#d32f2f', fontWeight: 'bold' }
+  tabTextActivo: { color: '#d32f2f', fontWeight: 'bold' },
+  contenedorPlano: {
+  width: '100%',
+  height: 250, // Ajustá la altura según consideres cómodo para el diseño
+  backgroundColor: '#fff',
+  borderRadius: 8,
+  overflow: 'hidden',
+  justifyContent: 'center',
+  alignItems: 'center',
+  marginVertical: 10,
+  borderWidth: 1,
+  borderColor: '#eee',
+},
+imagenPlano: {
+  width: '100%',
+  height: '100%',
+},
 });
