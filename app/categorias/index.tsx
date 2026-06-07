@@ -6,7 +6,7 @@ export default function SeleccionarCategoria() {
   const { adminMode } = useLocalSearchParams(); // Captura si viene de la Home como admin
 
   const entrarACategoria = (catNombre: string) => {
-    // Viaja a las pestañas pasando la categoría Y el modo administrador
+    // Viaja a las pestañas pasando el nombre limpio de la categoría Y el modo administrador
     router.push({ 
       pathname: '/categorias/tabs', 
       params: { 
@@ -16,25 +16,24 @@ export default function SeleccionarCategoria() {
     });
   };
 
-
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Selecciona una Categoría</Text>
       
       <View style={styles.list}>
-        {/* Categoría Sub 12 */}
-        <TouchableOpacity style={styles.button} onPress={() => entrarACategoria('8va - Sub 12')}>
-          <Text style={styles.buttonText}>🏑 8va - SUB 12</Text>
+        {/* Categoría 8va */}
+        <TouchableOpacity style={styles.button} onPress={() => entrarACategoria('8va')}>
+          <Text style={styles.buttonText}>🏑 8va CATEGORÍA</Text>
         </TouchableOpacity>
 
-        {/* Categoría Sub 14 (Corregido el parámetro) */}
-        <TouchableOpacity style={styles.button} onPress={() => entrarACategoria('9na - Sub 10')}>
-          <Text style={styles.buttonText}>🏑 9na - SUB 10</Text>
+        {/* Categoría 9na */}
+        <TouchableOpacity style={styles.button} onPress={() => entrarACategoria('9na')}>
+          <Text style={styles.buttonText}>🏑 9na CATEGORÍA</Text>
         </TouchableOpacity>
 
-        {/* Categoría Sub 16 (Corregido el parámetro) */}
-        <TouchableOpacity style={styles.button} onPress={() => entrarACategoria('10ma - Sub 8')}>
-          <Text style={styles.buttonText}>🏑 10ma - SUB 8</Text>
+        {/* Categoría 10ma */}
+        <TouchableOpacity style={styles.button} onPress={() => entrarACategoria('10ma')}>
+          <Text style={styles.buttonText}>🏑 10ma CATEGORÍA</Text>
         </TouchableOpacity>
       </View>
     </View>
