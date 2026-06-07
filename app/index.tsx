@@ -1,15 +1,14 @@
+import * as DocumentPicker from 'expo-document-picker';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import * as XLSX from 'xlsx';
 
-const partidosSemilla = [
-  { categoria: "Sub 12", cancha: "Cancha 1", hora: "09:00", local: "Tigres Azul", visitante: "SICC Verde", jugado: false },
-  { categoria: "Sub 12", cancha: "Cancha 1", hora: "09:30", local: "Popeye A", visitante: "Tigres Rosa", jugado: false },
-  { categoria: "Sub 12", cancha: "Cancha 2", hora: "09:00", local: "Uni Verde", visitante: "Suri Azul", jugado: false },
-  { categoria: "Sub 10", cancha: "Cancha 5", hora: "09:00", local: "Tigres 1", visitante: "SICC Verde", jugado: false },
-  { categoria: "Sub 10", cancha: "Cancha 5", hora: "09:30", local: "Popeye B", visitante: "Tigres 5", jugado: false },
-  { categoria: "Sub 8", cancha: "Cancha 9", hora: "09:00", local: "Tigres Azul", visitante: "Jockey Rojo", jugado: false },
-  { categoria: "Sub 8", cancha: "Cancha 10", hora: "09:00", local: "Mitre", visitante: "Uni Rugby Verde", jugado: false }
+// Lista oficial de los 13 clubes de la Copa Tigrilla
+const clubesOficiales = [
+  "UNI RUGBY", "JOCKEY", "GRAND BOURG", "SAN ANTONIO", "CACHORROS",
+  "GIMNASIA Y TIRO", "ACADEMIA FENIX", "SICC", "TIGRES", 
+  "CENTRAL NORTE", "POPEYE", "FENIX (SALTA)", "WAYRA TORO"
 ];
 
 export default function Index() {
@@ -25,48 +24,166 @@ export default function Index() {
   // PIN de acceso rápido para el administrador
   const PIN_CORRECTO = "2026"; 
 
-  async function ejecutarSubidaManual() {
-    setCargando(true);
-    setMensaje('Conectando e importando fixture...');
+// 🚀 VERSIÓN COMPATIBLE CON WEB Y CELULAR
+  const seleccionarYSubirExcel = async () => {
     try {
-      const { db } = await import('../firebaseConfig');
-      const { collection, addDoc } = await import('firebase/firestore');
+      const resultado = await DocumentPicker.getDocumentAsync({
+        type: [
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'application/vnd.ms-excel'
+        ],
+        copyToCacheDirectory: true
+      });
+
+      if (resultado.canceled || !resultado.assets || resultado.assets.length === 0) {
+        return; 
+      }
+
+      setCargando(true);
+      setMensaje('Abriendo archivo seleccionado...');
+      const archivo = resultado.assets[0];
+      const nombreArchivo = archivo.name.toLowerCase();
+
+      let categoriaDetectada = "";
+      if (nombreArchivo.includes('8va')) categoriaDetectada = "8va";
+      else if (nombreArchivo.includes('9na')) categoriaDetectada = "9na";
+      else if (nombreArchivo.includes('10ma')) categoriaDetectada = "10ma";
+
+      if (!categoriaDetectada) {
+        setCargando(false);
+        setMensaje('');
+        alert("El nombre del archivo debe contener '8va', '9na' o '10ma' para identificar la categoría.");
+        return;
+      }
+
+      setMensaje('Analizando las planillas de juego...');
+      const respuesta = await fetch(archivo.uri);
+      const arrayBuffer = await respuesta.arrayBuffer();
+      
+      const data = new Uint8Array(arrayBuffer);
+      const workbook = XLSX.read(data, { type: 'array' });
+      
+      const primeraHojaNombre = workbook.SheetNames[0];
+      const hoja = workbook.Sheets[primeraHojaNombre];
+      
+      const filas: any[] = XLSX.utils.sheet_to_json(hoja, { defval: "" });
+
+      setCargando(false);
+      setMensaje('');
+
+      if (!filas || filas.length === 0) {
+        alert("El archivo Excel seleccionado no contiene filas válidas.");
+        return;
+      }
+
+      const mensajeConfirmacion = `Documento: ${archivo.name}\nPartidos encontrados: ${filas.length}\nCategoría destino: ${categoriaDetectada}\n\n¿Querés subir estos partidos ahora?`;
+
+      // 🌐 DETECCIÓN DE PLATAFORMA (WEB vs MOBILE)
+      import('react-native').then(({ Platform, Alert }) => {
+        if (Platform.OS === 'web') {
+          // Si estás en el navegador (Web), usamos el confirm estándar del explorador
+          const respuestaWeb = window.confirm(mensajeConfirmacion);
+          if (respuestaWeb) {
+            procesarSubidaFirestore(filas, categoriaDetectada);
+          }
+        } else {
+          // Si estás en el Celular (Android/iOS), usamos la alerta nativa estilizada
+          Alert.alert(
+            "Archivo Verificado 📁",
+            mensajeConfirmacion,
+            [
+              { text: "Cancelar", style: "cancel" },
+              { text: "Subir Fixture", onPress: () => procesarSubidaFirestore(filas, categoriaDetectada) }
+            ],
+            { cancelable: true }
+          );
+        }
+      });
+
+    } catch (error: any) {
+      setCargando(false);
+      setMensaje('');
+      alert(error.message || "Ocurrió un error al procesar el archivo Excel.");
+    }
+  };
+
+  // 🔥 FUNCIÓN QUE SUBE LOS DATOS MAPEADOS A FIRESTORE EN BLOQUE (BATCH)
+  const procesarSubidaFirestore = async (partidosExcel: any[], categoria: string) => {
+    setCargando(true);
+    setMensaje(`Subiendo fixture de ${categoria} a Firebase...`);
+    try {
+      const { db } = await import('@/firebaseConfig');
+      const { collection, writeBatch, doc } = await import('firebase/firestore');
 
       const partidosRef = collection(db, "partidos");
-      for (const partido of partidosSemilla) {
-        await addDoc(partidosRef, partido);
+      const batch = writeBatch(db);
+      let partidosValidosContados = 0;
+
+      partidosExcel.forEach((fila) => {
+        const canchaNum = String(fila["Cancha"] || "").trim();
+        const numPartido = parseInt(fila["Part"]) || 1;
+        const horaInicio = String(fila["Hs Inicio"] || "").trim();
+        const horaFin = String(fila["Hs Fin"] || "").trim();
+        
+        // Atajamos el duplicado automático que genera xlsx para columnas idénticas
+        const equipoLocal = String(fila["Equipo"] || "").trim();
+        const equipoVisitante = String(fila["Equipo_1"] || fila["Equipo.1"] || fila["Equipo1"] || "").trim();
+
+        // Si la fila está vacía al final del Excel, la ignoramos de forma segura
+        if (!equipoLocal || !equipoVisitante) return;
+
+        partidosValidosContados++;
+        const nuevoDocRef = doc(partidosRef);
+        batch.set(nuevoDocRef, {
+          categoria: categoria,
+          cancha: canchaNum,
+          partidoNum: numPartido,
+          hora: horaInicio,
+          horaFin: horaFin,
+          local: equipoLocal,
+          visitante: equipoVisitante,
+          jugado: false
+        });
+      });
+
+      if (partidosValidosContados === 0) {
+        throw new Error("No se encontraron partidos válidos con local y visitante para estructurar.");
       }
-      setMensaje('¡Fixture cargado con éxito en Firebase! 🎉');
+
+      await batch.commit();
+      setMensaje(`¡Fixture de ${categoria} subido con éxito! 🎉`);
+      Alert.alert("¡Éxito! 🚀", `Se importaron ${partidosValidosContados} partidos de la categoría ${categoria} correctamente.`);
     } catch (error: any) {
-      console.error(error);
-      setMensaje(`Error: ${error.message || 'Error de conexión'}`);
+      Alert.alert("Error en la subida a Firebase", error.message);
+      setMensaje('Error al guardar datos.');
     } finally {
       setCargando(false);
     }
-  }
+  };
 
-  async function generarCodigosPrueba() {
+  // 🎫 Función para generar códigos alfanuméricos únicos por Club
+  async function generarCodigosOficiales() {
     setCargando(true);
-    setMensaje('Generando códigos de votación...');
+    setMensaje('Generando códigos únicos de votación...');
     try {
-      const { db } = await import('../firebaseConfig');
+      const { db } = await import('@/firebaseConfig');
       const { doc, setDoc } = await import('firebase/firestore');
 
-      const nuevosCodigos = [
-        { id: "TIGRES101", clubPertenece: "Tigres RC", usado: false },
-        { id: "POPEYE100", clubPertenece: "Popeye HC", usado: false },
-        { id: "GIMNASIA100", clubPertenece: "Gimnasia y Tiro", usado: false },
-        { id: "JOCKEY100", clubPertenece: "Jockey Club", usado: false },
-        { id: "UNI100", clubPertenece: "Universitario", usado: false },
-      ];
+      const generarHash = () => Math.random().toString(36).substring(2, 6).toUpperCase();
 
-      for (const item of nuevosCodigos) {
-        await setDoc(doc(db, "codigos_votos", item.id), {
-          clubPertenece: item.clubPertenece,
-          usado: item.usado
+      for (const nombreClub of clubesOficiales) {
+        const prefijo = nombreClub.substring(0, 2).toUpperCase();
+        const codigoUnico = `${prefijo}-${generarHash()}`;
+
+        await setDoc(doc(db, "codigos_votos", codigoUnico), {
+          clubPertenece: nombreClub,
+          votoEmitido: false,
+          votoPara: ""
         });
       }
-      setMensaje('¡Códigos de prueba creados con éxito! 🎫');
+
+      setMensaje('¡Códigos oficiales creados con éxito! 🎫');
+      Alert.alert("Éxito", "Códigos guardados en la colección 'codigos_votos'.");
     } catch (error: any) {
       console.error(error);
       setMensaje(`Error: ${error.message}`);
@@ -108,7 +225,7 @@ export default function Index() {
         <Text style={styles.infoText}>• <Text style={{ fontWeight: '600' }}>16:00 hs</Text> - Cierre</Text>
       </View>
     
-{/* 🏆 BOTONES PRINCIPALES DE USUARIO (SIEMPRE VISIBLES) */}
+      {/* 🏆 BOTONES PRINCIPALES DE USUARIO */}
       <View style={styles.buttonContainer}>
         <TouchableOpacity 
           style={[styles.button, { backgroundColor: '#1a1a1a', marginBottom: 15 }]} 
@@ -169,12 +286,17 @@ export default function Index() {
           <View style={styles.adminBox}>
             <Text style={styles.adminModoActivo}>✨ Modo Administrador Activo</Text>
             
-            <TouchableOpacity style={[styles.adminButton, { marginBottom: 10 }]} onPress={ejecutarSubidaManual} disabled={cargando}>
-              {cargando ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.adminButtonText}>⚙️ RE-SEMBRAR FIXTURE</Text>}
+            {/* 📥 BOTÓN SEGURO PARA SUBIR CUALQUIER EXCEL */}
+            <TouchableOpacity 
+              style={[styles.adminButton, { backgroundColor: '#2e7d32', marginBottom: 10 }]} 
+              onPress={seleccionarYSubirExcel} 
+              disabled={cargando}
+            >
+              {cargando ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.adminButtonText}>📥 SUBIR FIXTURE DESDE EXCEL</Text>}
             </TouchableOpacity>
 
-            <TouchableOpacity style={[styles.adminButton, { backgroundColor: '#e65100', marginBottom: 15 }]} onPress={generarCodigosPrueba} disabled={cargando}>
-              {cargando ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.adminButtonText}>🎫 GENERAR CÓDIGOS DE PRUEBA</Text>}
+            <TouchableOpacity style={[styles.adminButton, { backgroundColor: '#e65100', marginBottom: 15 }]} onPress={generarCodigosOficiales} disabled={cargando}>
+              {cargando ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.adminButtonText}>🎫 GENERAR CÓDIGOS OFICIALES</Text>}
             </TouchableOpacity>
 
             {mensaje ? <Text style={styles.adminFeedback}>{mensaje}</Text> : null}
@@ -203,8 +325,6 @@ const styles = StyleSheet.create({
   buttonContainer: { width: '100%', paddingHorizontal: 10, marginBottom: 30 },
   button: { width: '100%', height: 50, borderRadius: 8, justifyContent: 'center', alignItems: 'center', elevation: 2 },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: 'bold', letterSpacing: 0.5 },
-  
-  // Estilos de la Zona Admin
   adminSectionWrapper: { width: '100%', alignItems: 'center', marginTop: 10, marginBottom: 20 },
   linkAdmin: { padding: 10 },
   linkAdminTexto: { color: '#777', fontSize: 14, fontWeight: '500', textDecorationLine: 'underline' },
@@ -214,7 +334,6 @@ const styles = StyleSheet.create({
   adminLoginButtons: { flexDirection: 'row', gap: 10 },
   adminSubButton: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 5 },
   adminSubButtonText: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
-  
   adminBox: { width: '100%', padding: 15, borderStyle: 'dashed', borderWidth: 1, borderColor: '#7b1fa2', borderRadius: 8, alignItems: 'center', backgroundColor: '#f3e5f5' },
   adminModoActivo: { fontSize: 14, fontWeight: 'bold', color: '#7b1fa2', marginBottom: 12 },
   adminButton: { backgroundColor: '#7b1fa2', paddingVertical: 12, paddingHorizontal: 15, borderRadius: 6, width: '100%', alignItems: 'center' },

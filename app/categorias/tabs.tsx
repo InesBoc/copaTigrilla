@@ -1,15 +1,16 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { collection, doc, onSnapshot, query, setDoc, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { db } from '../../firebaseConfig'; // Asegúrate de que la ruta a tu config sea correcta
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { db } from '../../firebaseConfig';
 
-// Tipado básico para TypeScript
 interface Partido {
   id: string;
   categoria: string;
-  cancha: string;
-  hora: string;
+  cancha: string | number;
+  partidoNum: number; // 🆕 Número correlativo del partido por cancha (ej: 1, 2, 3...)
+  hora: string;       // Hs Inicio (ej: "10:00")
+  horaFin?: string;   // Hs Fin (ej: "10:12")
   local: string;
   visitante: string;
   jugado?: boolean;
@@ -23,18 +24,18 @@ export default function CategoriaTabs() {
   const [partidos, setPartidos] = useState<Partido[]>([]);
   const [cargando, setCargando] = useState(true);
 
-  // Mapeo seguro para que coincida el botón con el texto guardado en Firebase
+  // Mapeo adaptado a las categorías reales del encuentro infantil
   const obtenerCategoriaFirebase = (catParam: string | string[]) => {
     const stringCat = Array.isArray(catParam) ? catParam[0] : catParam;
-    if (stringCat.includes('Sub 12')) return 'Sub 12';
-    if (stringCat.includes('Sub 10')) return 'Sub 10';
-    if (stringCat.includes('Sub 8')) return 'Sub 8';
+    if (stringCat.includes('8')) return '8va';
+    if (stringCat.includes('9')) return '9na';
+    if (stringCat.includes('10')) return '10ma';
     return stringCat;
   };
 
   const categoriaFiltrar = obtenerCategoriaFirebase(categoria);
 
-  // --- TRAER PARTIDOS EN TIEMPO REAL DESDE FIRESTORE ---
+  // --- TRAER PARTIDOS EN TIEMPO REAL ---
   useEffect(() => {
     const partidosRef = collection(db, "partidos");
     const q = query(partidosRef, where("categoria", "==", categoriaFiltrar));
@@ -42,10 +43,28 @@ export default function CategoriaTabs() {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const listaPartidos: Partido[] = [];
       snapshot.forEach((docSnap) => {
-        listaPartidos.push({ id: docSnap.id, ...docSnap.data() } as Partido);
+        const data = docSnap.data();
+        listaPartidos.push({ 
+          id: docSnap.id, 
+          categoria: data.categoria,
+          cancha: data.cancha,
+          partidoNum: data.partidoNum || data.Part || data.part, // Mapeo flexible del número de partido
+          hora: data.hora || data.hsInicio || data.HsInicio,
+          horaFin: data.horaFin || data.hsFin || data.HsFin,
+          local: data.local || data.Equipo || data.equipo,
+          visitante: data.visitante || data.Equipo1 || data.equipo1,
+          jugado: data.jugado || false
+        } as Partido);
       });
-      // Opcional: Ordenar por hora del partido
-      listaPartidos.sort((a, b) => a.hora.localeCompare(b.hora));
+      
+      // Ordenamos primero por número de cancha y luego por horario
+      listaPartidos.sort((a, b) => {
+        const canchaA = Number(a.cancha) || 0;
+        const canchaB = Number(b.cancha) || 0;
+        if (canchaA !== canchaB) return canchaA - canchaB;
+        return a.hora.localeCompare(b.hora);
+      });
+
       setPartidos(listaPartidos);
       setCargando(false);
     }, (error) => {
@@ -56,81 +75,40 @@ export default function CategoriaTabs() {
     return () => unsubscribe();
   }, [categoriaFiltrar]);
 
-  // --- FUNCIÓN ADMINISTRADOR: MARCAR COMO JUGADO (CORREGIDA WEB/MOBILE) ---
-  const cambiarEstadoJugado = (id: string, estadoActual: boolean) => {
-    // Si NO es administrador, cancelamos la acción silenciosamente
+  // --- SWITCH DE ESTADO RÁPIDO PARA EL ADMIN (UN SOLO CLIC SIN CARTALITOS) ---
+  const conmutarEstadoPartidoAdmin = async (id: string, estadoActual: boolean) => {
     if (!esAdministradorReal) return;
-
-    const titulo = "Control de Partido (Admin)";
-    const mensaje = estadoActual ? "¿Querés cambiar el partido a PENDIENTE?" : "¿Dar por JUGADO este partido?";
-
-    // 1. CONTROL EXCLUSIVO PARA NAVEGADOR WEB (PC / Netlify / Expo Web)
-    if (typeof window !== 'undefined' && typeof (window as any).confirm === 'function') {
-      const confirmar = window.confirm(`${titulo}\n\n${mensaje}`);
-      if (confirmar) {
-        ejecutarActualizacion(id, estadoActual);
-      }
-      return; // Corta acá para que no intente usar el Alert de celular
-    }
-
-    // 2. CONTROL NATIVO PARA CELULARES (Expo Go Android/iOS)
-    Alert.alert(
-      titulo,
-      mensaje,
-      [
-        { text: "Cancelar", style: "cancel" },
-        { text: "Sí, cambiar", onPress: () => ejecutarActualizacion(id, estadoActual) }
-      ]
-    );
-  };
-
-  // Función de diagnóstico pesado para obligar a mostrar el error en pantalla
-  const ejecutarActualizacion = async (id: string, estadoActual: boolean) => {
     try {
-      // 1. Alerta de control: Ver si el ID existe y es real
-      alert("Paso 1: Intentando actualizar Partido ID:\n" + id);
-
       const partidoRef = doc(db, "partidos", id);
-      const nuevoEstado = !estadoActual;
-
-      // 2. Intentar impactar Firebase
-      await setDoc(partidoRef, { jugado: nuevoEstado }, { merge: true });
-      
-      alert("Paso 2: ¡Firebase aceptó la escritura con éxito! 🎉");
-
-      // 3. Forzar actualización local
-      setPartidos(prevPartidos => 
-        prevPartidos.map(p => p.id === id ? { ...p, jugado: nuevoEstado } : p)
-      );
-
-    } catch (error: any) {
-      console.error(error);
-      // 3. Si Firebase falla, nos va a decir EXACTAMENTE por qué acá:
-      alert("❌ ERROR CRÍTICO DE FIREBASE:\n" + error.message + "\n\nCódigo: " + error.code);
+      await setDoc(partidoRef, { jugado: !estadoActual }, { merge: true });
+    } catch (error) {
+      console.error("Error al cambiar estado:", error);
     }
   };
 
-  // --- COMPONENTES DE PESTAÑAS ---
+  // --- COMPONENTES DE INTERFAZ ---
 
   const VistaPlano = () => (
     <View style={styles.tabContenido}>
-      <Text style={styles.seccionTitle}>🗺️ Distribución de Canchas</Text>
-      <Text style={styles.bajada}>Ubicación de las canchas asignadas para {categoria}</Text>
+      <Text style={styles.seccionTitle}>🗺️ Ubicación de Canchas</Text>
+      <Text style={styles.bajada}>Distribución asignada para la categoría {categoriaFiltrar}</Text>
       <View style={styles.placeholderPlano}>
-        <Text style={styles.placeholderTexto}>Acá vamos a cargar la imagen del plano del club</Text>
+        <Text style={styles.placeholderTexto}>
+          {categoriaFiltrar === '8va' && "🏑 Canchas: 1, 2, 3 y 4"}
+          {categoriaFiltrar === '9na' && "🏑 Canchas: 5, 6, 7 y 8"}
+          {categoriaFiltrar === '10ma' && "🏑 Canchas: 9, 10, 11 y 12"}
+        </Text>
       </View>
     </View>
   );
 
   const VistaEquipos = () => {
-    // Extraer equipos únicos de los partidos cargados
-    const equiposUnicos = Array.from(new Set(partidos.flatMap(p => [p.local, p.visitante]))).sort();
-
+    const equiposUnicos = Array.from(new Set(partidos.flatMap(p => [p.local, p.visitante]))).filter(Boolean).sort();
     return (
       <ScrollView contentContainerStyle={styles.tabContenido}>
-        <Text style={styles.seccionTitle}>👥 Equipos Participantes ({partidos.length ? partidos.length * 2 : 0})</Text>
+        <Text style={styles.seccionTitle}>👥 Clubes Participantes ({equiposUnicos.length})</Text>
         {equiposUnicos.length === 0 ? (
-          <Text style={styles.textoVacio}>No hay equipos registrados para esta categoría.</Text>
+          <Text style={styles.textoVacio}>No hay equipos asignados a esta categoría.</Text>
         ) : (
           equiposUnicos.map((equipo, index) => (
             <View key={index} style={styles.itemEquipo}>
@@ -144,57 +122,66 @@ export default function CategoriaTabs() {
 
   const VistaFixture = () => (
     <ScrollView contentContainerStyle={styles.tabContenido}>
-      <Text style={styles.seccionTitle}>🗓️ Rol de Partidos</Text>
-      
-      {esAdministradorReal && (
-        <Text style={styles.adminTip}>💡 Admin: Toca una tarjeta para marcar/desmarcar como jugado.</Text>
-      )}
+      <View style={styles.headerFixtureSeccion}>
+        <Text style={styles.seccionTitle}>🗓️ Rol de Partidos</Text>
+        {esAdministradorReal && <Text style={styles.badgeAdminMode}>Modo Admin Listo</Text>}
+      </View>
       
       {cargando ? (
         <ActivityIndicator size="large" color="#d32f2f" style={{ marginTop: 20 }} />
       ) : partidos.length === 0 ? (
-        <Text style={styles.textoVacio}>No hay partidos cargados para esta categoría.</Text>
+        <Text style={styles.textoVacio}>No hay partidos cargados para {categoriaFiltrar}.</Text>
       ) : (
         partidos.map((partido) => {
           const esJugado = partido.jugado === true;
 
           return (
             <TouchableOpacity 
-              key={partido.id} 
-              onPress={() => cambiarEstadoJugado(partido.id, esJugado)}
+              key={partido.id}
+              onPress={() => conmutarEstadoPartidoAdmin(partido.id, esJugado)}
               activeOpacity={esAdministradorReal ? 0.7 : 1}
-              style={[
-                styles.cardPartido, 
-                esJugado && styles.cardPartidoJugado 
-              ]}
+              style={[styles.cardPartido, esJugado && styles.cardPartidoJugado]}
             >
-              {/* HEADER DE LA TARJETA */}
-              <View style={[styles.partidoHeader, esJugado && { borderBottomColor: '#c8e6c9' }]}>
-                <View style={styles.headerFilaSuperior}>
-                  <Text style={[styles.partidoHora, esJugado && { color: '#2e7d32' }]}>
-                    ⏰ {partido.hora} hs {esJugado ? '✅ JUGADO' : ''}
+              {/* Encabezado: Nº Partido - Cancha - Bloque Horario */}
+              <View style={[styles.partidoHeader, esJugado && styles.partidoHeaderJugado]}>
+                <View style={styles.headerInfoIzquierda}>
+                  <Text style={[styles.txtPartidoNum, esJugado && styles.txtTextoJugadoVerde]}>
+                    PARTIDO {partido.partidoNum}
                   </Text>
-                  <Text style={[styles.partidoCancha, esJugado && { color: '#388e3c' }]}>
-                    📍 {partido.cancha}
+                  <Text style={styles.txtHorario}>
+                    ⏰ {partido.hora} a {partido.horaFin || '--:--'} hs
                   </Text>
                 </View>
-
-                {/* 👁️ ACCIÓN DE ADMIN EN UNA LÍNEA EXCLUSIVA INFERIOR PARA QUE NO SE SOLAPE */}
-                {esAdministradorReal && (
-                  <View style={styles.adminAccionContenedor}>
-                    <Text style={[styles.adminAccionTexto, esJugado ? styles.textoPendiente : styles.textoJugado]}>
-                      {esJugado ? '🔄 Tocar para cambiar a Pendiente' : '⚡ Tocar para marcar como Jugado'}
-                    </Text>
-                  </View>
-                )}
+                <Text style={[styles.txtCancha, esJugado && styles.txtCanchaJugado]}>
+                  📍 Cancha {partido.cancha}
+                </Text>
               </View>
 
-              {/* CRUCES DE EQUIPOS */}
+              {/* Cruce directo en formato limpio tipo grilla */}
               <View style={styles.partidoCruces}>
-                <Text style={[styles.partidoEquipo, esJugado && { color: '#1b5e20' }]}>{partido.local}</Text>
-                <Text style={[styles.vs, esJugado && { color: '#757575' }]}>vs</Text>
-                <Text style={[styles.partidoEquipo, esJugado && { color: '#1b5e20' }]}>{partido.visitante}</Text>
+                <View style={[styles.contenedorEquipo, esJugado && styles.contenedorEquipoJugado]}>
+                  <Text style={[styles.partidoEquipo, esJugado && styles.txtTextoJugadoVerde]} numberOfLines={1}>
+                    {partido.local}
+                  </Text>
+                </View>
+                
+                <Text style={[styles.vs, esJugado && { color: '#a5d6a7' }]}>vs</Text>
+                
+                <View style={[styles.contenedorEquipo, esJugado && styles.contenedorEquipoJugado]}>
+                  <Text style={[styles.partidoEquipo, esJugado && styles.txtTextoJugadoVerde]} numberOfLines={1}>
+                    {partido.visitante}
+                  </Text>
+                </View>
               </View>
+
+              {/* Indicador inferior estético solo para el Admin */}
+              {esAdministradorReal && (
+                <View style={styles.footerAdminAccion}>
+                  <Text style={[styles.txtAdminFeedback, esJugado ? styles.txtStyleReset : styles.txtCheck]}>
+                    {esJugado ? "🔄 Tocar para poner Pendiente" : "⚡ Tocar para marcar Jugado"}
+                  </Text>
+                </View>
+              )}
             </TouchableOpacity>
           );
         })
@@ -217,7 +204,7 @@ export default function CategoriaTabs() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Text style={styles.backButtonText}>← Volver</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Copa Tigrilla - {categoriaFiltrar}</Text>
+        <Text style={styles.headerTitle}>Copa Tigrilla — {categoriaFiltrar}</Text>
       </View>
 
       <View style={styles.cuerpo}>
@@ -251,44 +238,52 @@ export default function CategoriaTabs() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
+  container: { flex: 1, backgroundColor: '#f6f8fa' },
   header: { padding: 20, paddingTop: 50, backgroundColor: '#1a1a1a', flexDirection: 'row', alignItems: 'center', borderBottomWidth: 3, borderBottomColor: '#d32f2f' },
   backButton: { marginRight: 15, backgroundColor: '#333', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6 },
   backButtonText: { color: '#fff', fontSize: 14, fontWeight: 'bold' },
-  headerTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+  headerTitle: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
   cuerpo: { flex: 1 },
-  tabContenido: { padding: 20 },
-  seccionTitle: { fontSize: 20, fontWeight: 'bold', color: '#1a1a1a', marginBottom: 5 },
-  bajada: { fontSize: 14, color: '#666', marginBottom: 20 },
-  adminTip: { fontSize: 11, color: '#7b1fa2', fontWeight: '600', marginBottom: 15 },
-  textoVacio: { textAlign: 'center', color: '#888', marginTop: 30, fontSize: 15 },
+  tabContenido: { padding: 15 },
+  headerFixtureSeccion: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  seccionTitle: { fontSize: 18, fontWeight: 'bold', color: '#1a1a1a' },
+  badgeAdminMode: { fontSize: 11, fontWeight: 'bold', color: '#fff', backgroundColor: '#7b1fa2', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4 },
+  bajada: { fontSize: 13, color: '#666', marginBottom: 15 },
+  textoVacio: { textAlign: 'center', color: '#999', marginTop: 40, fontSize: 14 },
   
-  placeholderPlano: { width: '100%', height: 250, backgroundColor: '#e0e0e0', borderRadius: 8, justifyContent: 'center', alignItems: 'center', padding: 20, borderStyle: 'dashed', borderWidth: 2, borderColor: '#aaa' },
-  placeholderTexto: { color: '#666', textAlign: 'center', fontSize: 16 },
+  placeholderPlano: { width: '100%', height: 180, backgroundColor: '#eef1f4', borderRadius: 8, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#cbd5e1', borderStyle: 'dashed' },
+  placeholderTexto: { color: '#475569', fontSize: 14, fontWeight: '600', textAlign: 'center' },
 
-  itemEquipo: { backgroundColor: '#fff', padding: 15, borderRadius: 8, marginBottom: 10, elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 },
-  itemEquipoTexto: { fontSize: 16, fontWeight: '600', color: '#1a1a1a' },
+  itemEquipo: { backgroundColor: '#fff', padding: 12, borderRadius: 6, marginBottom: 8, borderWidth: 1, borderColor: '#e2e8f0' },
+  itemEquipoTexto: { fontSize: 14, fontWeight: '600', color: '#334155' },
 
-  // Estilos del Fixture Normal
-  cardPartido: { backgroundColor: '#fff', borderRadius: 10, padding: 15, marginBottom: 15, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 3, borderLeftWidth: 5, borderLeftColor: '#d32f2f' },
-  // Estilo Verde Especial para el partido jugado
-  cardPartidoJugado: { backgroundColor: '#e8f5e9', borderLeftColor: '#4caf50', elevation: 1 },
+  // Tarjetas del fixture adaptadas al modelo infantil
+  cardPartido: { backgroundColor: '#fff', borderRadius: 8, marginBottom: 12, borderWidth: 1, borderColor: '#dee2e6', overflow: 'hidden', elevation: 1 },
+  cardPartidoJugado: { backgroundColor: '#edf7ed', borderColor: '#c8e6c9' },
   
-  partidoHeader: { flexDirection: 'column', marginBottom: 12, borderBottomWidth: 1, borderBottomColor: '#eee', paddingBottom: 8 },
-  headerFilaSuperior: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%'},
-  adminAccionContenedor: { marginTop: 6, backgroundColor: '#f0f0f0', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 4, alignSelf: 'flex-start'},
-  adminAccionTexto: { fontSize: 11, fontWeight: 'bold'},
-  textoJugado: {color: '#7b1fa2'},
-  textoPendiente: { color: '#c62828'},
-  partidoHora: { fontWeight: 'bold', color: '#d32f2f', fontSize: 14 },
-  partidoCancha: { color: '#666', fontWeight: '500', fontSize: 14 },
-  partidoCruces: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingVertical: 5 },
-  partidoEquipo: { flex: 1, fontSize: 15, fontWeight: 'bold', color: '#1a1a1a', textAlign: 'center' },
-  vs: { paddingHorizontal: 10, color: '#888', fontStyle: 'italic', fontWeight: 'bold' },
+  partidoHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8f9fa', paddingHorizontal: 12, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#edf2f7' },
+  partidoHeaderJugado: { backgroundColor: '#e8f5e9', borderBottomColor: '#c8e6c9' },
+  headerInfoIzquierda: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  txtPartidoNum: { fontSize: 12, fontWeight: 'bold', color: '#495057' },
+  txtHorario: { fontSize: 12, fontWeight: '600', color: '#6c757d' },
+  txtCancha: { fontSize: 12, fontWeight: 'bold', color: '#d32f2f' },
+  txtCanchaJugado: { color: '#2e7d32' },
 
-  tabBar: { flexDirection: 'row', height: 75, borderTopWidth: 1, borderTopColor: '#eee', backgroundColor: '#fff',paddingBottom: 15, position: 'relative', },
-  tabButton: { flex: 1, justifyContent: 'center', alignItems: 'center' ,  paddingVertical: 5},
-  tabActiva: { borderTopWidth: 3, borderTopColor: '#1a1a1a', backgroundColor: '#f9f9f9' },
-  tabText: { fontSize: 14, fontWeight: '600', color: '#888', textAlign: 'center' },
-  tabTextActivo: { color: '#1a1a1a', fontWeight: 'bold' }
+  partidoCruces: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', padding: 10, backgroundColor: '#fff' },
+  contenedorEquipo: { flex: 1, backgroundColor: '#f1f3f5', paddingVertical: 8, paddingHorizontal: 6, borderRadius: 4, alignItems: 'center' },
+  contenedorEquipoJugado: { backgroundColor: '#f1f8e9' },
+  partidoEquipo: { fontSize: 13, fontWeight: '700', color: '#212529' },
+  txtTextoJugadoVerde: { color: '#2e7d32' },
+  vs: { paddingHorizontal: 12, color: '#ced4da', fontWeight: 'bold', fontSize: 12 },
+
+  footerAdminAccion: { backgroundColor: '#fafafa', paddingVertical: 4, alignItems: 'center', borderTopWidth: 1, borderTopColor: '#f1f1f1' },
+  txtAdminFeedback: { fontSize: 10, fontWeight: 'bold' },
+  txtCheck: { color: '#7b1fa2' },
+  txtStyleReset: { color: '#c62828' },
+
+  tabBar: { flexDirection: 'row', height: 70, borderTopWidth: 1, borderTopColor: '#e2e8f0', backgroundColor: '#fff', paddingBottom: 10 },
+  tabButton: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  tabActiva: { borderTopWidth: 3, borderTopColor: '#d32f2f' },
+  tabText: { fontSize: 13, fontWeight: '600', color: '#94a3b8' },
+  tabTextActivo: { color: '#d32f2f', fontWeight: 'bold' }
 });
