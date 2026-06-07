@@ -221,7 +221,7 @@ export default function Index() {
         <Text style={styles.infoText}>• <Text style={{ fontWeight: '600' }}>09:00 hs</Text> - Acreditaciones (Cantina)</Text>
         <Text style={styles.infoText}>• <Text style={{ fontWeight: '600' }}>09:30 hs</Text> - Acto de Inauguración (Cancha 2)</Text>
         <Text style={styles.infoText}>• <Text style={{ fontWeight: '600' }}>10:00 hs</Text> - Inicio de Partidos</Text>
-        <Text style={styles.infoText}>• <Text style={{ fontWeight: '600' }}>12:30 hs</Text> - Almuerzo 10 ma</Text>
+        <Text style={styles.infoText}>• <Text style={{ fontWeight: '600' }}>12:30 hs</Text> - Almuerzo 10ma</Text>
         <Text style={styles.infoText}>• <Text style={{ fontWeight: '600' }}>13:00 hs</Text> - Almuerzo 9na</Text>
         <Text style={styles.infoText}>• <Text style={{ fontWeight: '600' }}>13:30 hs</Text> - Almuerzo 8va</Text>
         <Text style={styles.infoText}>• <Text style={{ fontWeight: '600' }}>14:00 hs</Text> - Concurso de Coreos 💃 y Sorteos (Cancha 2)</Text>

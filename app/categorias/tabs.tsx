@@ -35,8 +35,12 @@ export default function CategoriaTabs() {
 
   const categoriaFiltrar = obtenerCategoriaFirebase(categoria);
 
-  // --- TRAER PARTIDOS EN TIEMPO REAL ---
   useEffect(() => {
+    // 🔍 LOGS DE DIAGNÓSTICO:
+    console.log("=== DIAGNÓSTICO DE FILTRO ===");
+    console.log("Parametro bruto recibido (categoria):", categoria);
+    console.log("Resultado tras procesar (categoriaFiltrar):", categoriaFiltrar);
+
     const partidosRef = collection(db, "partidos");
     const q = query(partidosRef, where("categoria", "==", categoriaFiltrar));
 
@@ -87,20 +91,24 @@ export default function CategoriaTabs() {
   };
 
 const VistaPlano = () => (
-    <View style={styles.tabContenido}>
-      <Text style={styles.seccionTitle}>🗺️ Ubicación de Canchas</Text>
-      <Text style={styles.bajada}>Distribución asignada para la categoría {categoriaFiltrar}</Text>
-      
-      {/* Contenedor flexible adaptado al ancho */}
-      <View style={styles.contenedorPlano}>
-        <Image 
-          source={require('../../assets/images/plano.jpeg') as any} 
-          style={styles.imagenPlano}
-          resizeMode="contain" // Mantiene la proporción original sin recortar nada
-        />
+    <View style={styles.tabContenidoFlexible}>
+      <View style={styles.paddingTextos}>
+        <Text style={styles.seccionTitle}>🗺️ Ubicación de Canchas</Text>
+        <Text style={styles.bajada}>Distribución asignada para la categoría {categoriaFiltrar}</Text>
       </View>
+      
+      {/* 🚀 CONTENEDOR CON DOBLE SCROLL (VERTICAL Y HORIZONTAL) */}
+      <ScrollView style={styles.scrollVerticalPlano}>
+        <ScrollView horizontal={true} style={styles.scrollHorizontalPlano}>
+          <Image 
+            source={require('../../assets/images/plano.jpeg') as any} 
+            style={styles.imagenPlanoGrande}
+            resizeMode="cover" // Mantiene el tamaño real para poder navegarlo deslizando
+          />
+        </ScrollView>
+      </ScrollView>
 
-      <View style={styles.placeholderPlano}>
+      <View style={styles.placeholderPlanoFijo}>
         <Text style={styles.placeholderTexto}>
           {categoriaFiltrar === '8va' && "🏑 Canchas asignadas: 1, 2, 3 y 4"}
           {categoriaFiltrar === '9na' && "🏑 Canchas asignadas: 5, 6, 7 y 8"}
@@ -289,9 +297,9 @@ const styles = StyleSheet.create({
   txtStyleReset: { color: '#c62828' },
 
   tabBar: { flexDirection: 'row', height: 70, borderTopWidth: 1, borderTopColor: '#e2e8f0', backgroundColor: '#fff', paddingBottom: 10 },
-  tabButton: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  tabButton: { flex: 1, justifyContent: 'center', alignItems: 'center' ,},
   tabActiva: { borderTopWidth: 3, borderTopColor: '#d32f2f' },
-  tabText: { fontSize: 13, fontWeight: '600', color: '#94a3b8' },
+  tabText: { fontSize: 20, fontWeight: '600', color: '#94a3b8' },
   tabTextActivo: { color: '#d32f2f', fontWeight: 'bold' },
 contenedorPlano: {
     width: '100%',
@@ -310,5 +318,41 @@ contenedorPlano: {
     width: '100%',
     height: undefined, // Deja que el alto se calcule automáticamente
     aspectRatio: 1.4,  // 🚀 Ajustá este número según la forma real de tu plano (ej: 4/3 o 16/9)
+  },
+  // Nuevos estilos para la vista del plano deslizable
+  tabContenidoFlexible: {
+    flex: 1,
+  },
+  paddingTextos: {
+    paddingHorizontal: 15,
+    paddingTop: 15,
+  },
+  scrollVerticalPlano: {
+    flex: 1,
+    maxHeight: 400, // Controla la altura máxima del visor del mapa en pantalla
+    marginVertical: 10,
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: '#eee',
+  },
+  scrollHorizontalPlano: {
+    flexDirection: 'row',
+  },
+  imagenPlanoGrande: {
+    width: 400,  // 🗺️ Ajustá este ancho al tamaño en que quieras que se estire el mapa para deslizar
+    height: 700, // 🗺️ Ajustá este alto al tamaño en que quieras que se estire el mapa para deslizar
+  },
+  placeholderPlanoFijo: { 
+    padding: 30, 
+    backgroundColor: '#eef1f4', 
+    borderRadius: 8, 
+    marginHorizontal: 10,
+    marginBottom: 10,
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    borderWidth: 1, 
+    borderColor: '#cbd5e1', 
+    borderStyle: 'dashed' 
   },
 });
